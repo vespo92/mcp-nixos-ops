@@ -1,0 +1,24 @@
+{
+  "name": "mcp-nixos-ops",
+  "version": "1.0.0",
+  "description": "MCP server for remote NixOS system management via SSH",
+  "type": "module",
+  "main": "src/index.ts",
+  "bin": {
+    "mcp-nixos-ops": "src/index.ts"
+  },
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "dev": "MCP_NIXOS_OPS_DEBUG=1 bun run src/index.ts",
+    "test": "bun test",
+    "typecheck": "bun run tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "zod": "^3.24.4"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.13",
+    "typescript": "^5.8.3"
+  }
+}
