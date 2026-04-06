@@ -14,14 +14,19 @@ import { zfsPreflight } from "./tools/zfs.js";
 import { diff } from "./tools/diff.js";
 import { log, debug, type NodeConfig } from "./types.js";
 
+// NATS (optional — enabled by NATS_URL env var)
+import { NodeCache, connect as natsConnect, close as natsClose, isNatsEnabled, startSubscriber } from "./nats/index.js";
+
+const cache = new NodeCache();
+
 // Load inventory at startup
 let nodes: NodeConfig[];
 try {
   nodes = loadInventory();
-  setNodeRegistry(nodes); // Register nodes for jump host resolution
+  setNodeRegistry(nodes);
   log(`Loaded ${nodes.length} node(s): ${nodes.map((n) => n.name).join(", ")}`);
 
-  // Pre-warm jump hosts in background (don't block startup)
+  // Pre-warm jump hosts in background
   const jumpHosts = new Set(nodes.map((n) => n.jumpHost).filter(Boolean));
   if (jumpHosts.size > 0) {
     log(`Pre-warming jump host(s): ${[...jumpHosts].join(", ")}`);
@@ -35,6 +40,16 @@ try {
       }
     }
   }
+
+  // Connect to NATS if configured
+  if (isNatsEnabled()) {
+    natsConnect().then(async (conn) => {
+      if (conn) {
+        await startSubscriber(conn, cache);
+        log(`[nats] Subscriber active, cache-first reads enabled`);
+      }
+    });
+  }
 } catch (err) {
   log(`FATAL: Failed to load node inventory: ${err}`);
   process.exit(1);
@@ -43,13 +58,15 @@ try {
 // Create MCP server
 const server = new McpServer({
   name: "mcp-nixos-ops",
-  version: "1.0.0",
+  version: "2.0.0",
 });
 
-// Register the nixos_ops tool
+// Determine if NATS cache is available for read tools
+const natsCache = isNatsEnabled() ? cache : undefined;
+
 server.tool(
   "nixos_ops",
-  `Remote NixOS system management via SSH.
+  `Remote NixOS system management via SSH. Reads are accelerated by NATS cache when available.
 
 Actions:
   list-nodes      — Show configured nodes, tags, and permission flags
@@ -85,12 +102,10 @@ Safety model:
   },
   async ({ action, node: nodeName, confirm, limit }) => {
     try {
-      // list-nodes doesn't need a node
       if (action === "list-nodes") {
         return formatResult(listNodes());
       }
 
-      // All other actions require a node name
       if (!nodeName) {
         return formatError(`Action "${action}" requires a "node" parameter. Use action="list-nodes" to see available nodes.`);
       }
@@ -99,7 +114,7 @@ Safety model:
 
       switch (action) {
         case "status":
-          return formatResult(await status(node));
+          return formatResult(await status(node, natsCache));
 
         case "rebuild-dry":
           return formatResult(await rebuildDry(node));
@@ -108,7 +123,7 @@ Safety model:
           return formatResult(await rebuildSwitch(node, confirm));
 
         case "generations":
-          return formatResult(await listGenerations(node, limit));
+          return formatResult(await listGenerations(node, limit, natsCache));
 
         case "rollback":
           return formatResult(await rollback(node, confirm));
@@ -117,7 +132,7 @@ Safety model:
           return formatResult(await validate(node));
 
         case "zfs-preflight":
-          return formatResult(await zfsPreflight(node));
+          return formatResult(await zfsPreflight(node, natsCache));
 
         case "diff":
           return formatResult(await diff(node));
@@ -133,6 +148,8 @@ Safety model:
 
 function listNodes(): string {
   const lines = ["=== Configured NixOS Nodes ===", ""];
+  const natsStatus = isNatsEnabled() ? "NATS: connected" : "NATS: disabled (set NATS_URL to enable)";
+  lines.push(natsStatus, "");
 
   for (const node of nodes) {
     const tags = node.tags.length > 0 ? `[${node.tags.join(", ")}]` : "";
@@ -142,11 +159,16 @@ function listNodes(): string {
     if (node.allowRollback) perms.push("rollback");
     const permStr = perms.length > 0 ? perms.join(", ") : "read-only";
 
+    // Show cache status if NATS is enabled
+    const cacheAge = isNatsEnabled() ? cache.age(node.name) : -1;
+    const cacheStr = cacheAge >= 0 ? ` | Cache: ${cacheAge}s ago` : "";
+
     lines.push(`${node.name} (${node.host}:${node.port})`);
-    lines.push(`  User: ${node.user} | Mode: ${flakeMode} | Tags: ${tags || "none"}`);
+    lines.push(`  User: ${node.user} | Mode: ${flakeMode} | Tags: ${tags || "none"}${cacheStr}`);
     lines.push(`  Config: ${node.useFlake ? node.flakePath : node.configPath}`);
     lines.push(`  ZFS pools: ${node.zfsPools.length > 0 ? node.zfsPools.join(", ") : "none"}`);
     lines.push(`  Allowed ops: ${permStr}`);
+    if (node.jumpHost) lines.push(`  Jump host: ${node.jumpHost}`);
     lines.push("");
   }
 
@@ -169,12 +191,14 @@ function formatError(text: string) {
 // Graceful shutdown
 process.on("SIGINT", () => {
   debug("SIGINT received, cleaning up...");
+  natsClose();
   closeAll();
   process.exit(0);
 });
 
 process.on("SIGTERM", () => {
   debug("SIGTERM received, cleaning up...");
+  natsClose();
   closeAll();
   process.exit(0);
 });

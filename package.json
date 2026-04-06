@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
+    "nats": "^2.29.3",
     "zod": "^3.24.4"
   },
   "devDependencies": {

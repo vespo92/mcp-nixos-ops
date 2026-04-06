@@ -1,16 +1,39 @@
 import { run, getTimeout } from "../ssh.js";
-import type { NodeConfig } from "../types.js";
+import type { NodeConfig, GenerationsPayload } from "../types.js";
+import type { NodeCache } from "../nats/cache.js";
+
+function formatCached(node: NodeConfig, data: GenerationsPayload, age: number, limit: number): string {
+  const lines = [`=== Generations: ${node.name} (last ${limit}) ===`, `[source: cache, age: ${age}s]`];
+  lines.push(`Current: ${data.current}\n`);
+  const shown = data.generations.slice(-limit);
+  for (const gen of shown) {
+    const marker = gen.current ? "(current)" : "";
+    lines.push(`  ${gen.id}   ${gen.date}   ${marker}`);
+  }
+  return lines.join("\n");
+}
 
 export async function listGenerations(
   node: NodeConfig,
-  limit: number = 10
+  limit: number = 10,
+  cache?: NodeCache
 ): Promise<string> {
+  // Try cache first
+  if (cache) {
+    const cached = cache.getGenerations(node.name);
+    if (cached) {
+      return formatCached(node, cached, cache.age(node.name), limit);
+    }
+  }
+
+  // SSH fallback
   const timeout = getTimeout("generations");
+  const sourceTag = cache ? "[source: ssh (cache stale)]\n" : "";
   const cmd = `sudo nix-env --list-generations --profile /nix/var/nix/profiles/system | tail -n ${limit}`;
 
   const result = await run(node, cmd, timeout);
 
-  const lines = [`=== Generations: ${node.name} (last ${limit}) ===`];
+  const lines = [`=== Generations: ${node.name} (last ${limit}) ===`, sourceTag];
 
   if (result.timedOut) {
     lines.push(`TIMED OUT`);
@@ -18,7 +41,6 @@ export async function listGenerations(
     lines.push(`FAILED (exit code ${result.exitCode})`);
     lines.push(`stderr: ${result.stderr}`);
   } else {
-    // Also show current generation
     const current = await run(
       node,
       "readlink /nix/var/nix/profiles/system",

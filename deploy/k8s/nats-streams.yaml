@@ -1,0 +1,45 @@
+# JetStream stream definitions for nixops node telemetry.
+# Apply with: nats stream add --config nats-streams.yaml
+# Or use the NATS K8s operator CRDs if deployed.
+#
+# Two streams with different retention policies:
+#   NIXOPS_LIVE  — latest-only heartbeats and status (fast liveness)
+#   NIXOPS_STATE — recent ZFS and generation history (audit trail)
+
+---
+# Stream 1: Live telemetry (last value only, 5 min max age)
+apiVersion: jetstream.nats.io/v1beta2
+kind: Stream
+metadata:
+  name: nixops-live
+  namespace: nats
+spec:
+  name: NIXOPS_LIVE
+  subjects:
+    - "nixops.heartbeat.>"
+    - "nixops.status.>"
+  retention: limits
+  maxAge: 5m
+  maxMsgsPerSubject: 1   # Last value only
+  storage: memory         # Fast, no disk needed
+  replicas: 1
+  discard: old
+
+---
+# Stream 2: State history (last 10 per subject, 24h max age)
+apiVersion: jetstream.nats.io/v1beta2
+kind: Stream
+metadata:
+  name: nixops-state
+  namespace: nats
+spec:
+  name: NIXOPS_STATE
+  subjects:
+    - "nixops.zfs.>"
+    - "nixops.generations.>"
+  retention: limits
+  maxAge: 24h
+  maxMsgsPerSubject: 10   # Keep last 10 snapshots per node
+  storage: file            # Persist to disk
+  replicas: 1
+  discard: old

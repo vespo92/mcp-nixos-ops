@@ -70,6 +70,62 @@ export interface ZFSPoolStatus {
   statusDetail: string;
 }
 
+// --- NATS payload types ---
+
+export interface HeartbeatPayload {
+  ts: number;
+  up: number;
+  version: string;
+}
+
+export interface StatusPayload {
+  ts: number;
+  version: string;
+  uptime: string;
+  generation: string;
+  memory: { total: string; used: string; free: string; available: string };
+  disk: { root: string; nix: string };
+  failedServices: string[];
+  k3s: { active: boolean; nodes: string };
+}
+
+export interface ZfsPoolPayload {
+  name: string;
+  imported: boolean;
+  health: string;
+  capacityPct: number;
+  size: string;
+  alloc: string;
+  free: string;
+  scrub: string;
+}
+
+export interface ZfsPayload {
+  ts: number;
+  pools: ZfsPoolPayload[];
+  datasets: string;
+}
+
+export interface GenerationEntry {
+  id: number;
+  date: string;
+  current: boolean;
+}
+
+export interface GenerationsPayload {
+  ts: number;
+  current: string;
+  generations: GenerationEntry[];
+}
+
+export interface CachedNodeState {
+  lastSeen: number;
+  heartbeat?: HeartbeatPayload;
+  status?: StatusPayload;
+  zfs?: ZfsPayload;
+  generations?: GenerationsPayload;
+}
+
 // --- Logging ---
 
 const DEBUG = process.env.MCP_NIXOS_OPS_DEBUG === "1";
