@@ -16,3 +16,6 @@ coverage/
 
 # SSH sockets (runtime only)
 /tmp/nxs/
+
+# Never commit real node configs
+nodes.json

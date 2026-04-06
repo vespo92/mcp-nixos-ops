@@ -47,7 +47,7 @@ Nodes can route through another node. The jump host's ControlMaster socket is sh
 ```json
 {
   "name": "worker-3",
-  "host": "10.0.0.13",
+  "host": "198.51.100.13",
   "jumpHost": "bastion"
 }
 ```
@@ -72,7 +72,7 @@ Create `~/.config/mcp-nixos/nodes.json`:
 [
   {
     "name": "node-1",
-    "host": "10.0.0.10",
+    "host": "198.51.100.10",
     "user": "admin",
     "sshKey": "~/.ssh/id_ed25519",
     "useFlake": false,
@@ -84,7 +84,7 @@ Create `~/.config/mcp-nixos/nodes.json`:
   },
   {
     "name": "node-2",
-    "host": "10.0.0.11",
+    "host": "198.51.100.11",
     "user": "admin",
     "sshKey": "~/.ssh/id_ed25519",
     "jumpHost": "node-1",
